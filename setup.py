@@ -130,6 +130,7 @@ ext_modules = []
 cache_extension = CUDAExtension(
     name="vllm.cache_ops",
     sources=["csrc/cache.cpp", "csrc/cache_kernels.cu"],
+    include_dirs=["../cutlass/include"],
     extra_compile_args={
         "cxx": CXX_FLAGS,
         "nvcc": NVCC_FLAGS,
@@ -141,6 +142,7 @@ ext_modules.append(cache_extension)
 attention_extension = CUDAExtension(
     name="vllm.attention_ops",
     sources=["csrc/attention.cpp", "csrc/attention/attention_kernels.cu"],
+    include_dirs=["../cutlass/include"],
     extra_compile_args={
         "cxx": CXX_FLAGS,
         "nvcc": NVCC_FLAGS,

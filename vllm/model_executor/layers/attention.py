@@ -150,7 +150,8 @@ class PagedAttention(nn.Module):
             input_metadata: metadata for paged attention.
         """
         block_size = value_cache.shape[3]
-        attention_ops.single_query_cached_kv_attention(
+        #attention_ops.single_query_cached_kv_attention(
+        attention_ops.single_query_cached_kv_quantized_attention(
             output,
             query,
             key_cache,
@@ -235,7 +236,8 @@ class PagedAttention(nn.Module):
                 value_to_cache = value_to_cache[input_metadata.to_cache]
                 slot_mapping = slot_mapping[input_metadata.to_cache]
 
-            cache_ops.reshape_and_cache(
+            #cache_ops.reshape_and_cache(
+            cache_ops.reshape_and_cache_quantized(
                 key_to_cache,
                 value_to_cache,
                 key_cache,

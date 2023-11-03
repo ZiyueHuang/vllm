@@ -29,6 +29,9 @@ struct Vec {};
 template<typename T>
 struct FloatVec {};
 
+template<typename T>
+struct FloatVecTemp {};
+
 // Template vector operations.
 template<typename Acc, typename A, typename B>
 inline __device__ Acc mul(A a, B b);
