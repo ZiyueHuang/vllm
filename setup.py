@@ -172,6 +172,18 @@ positional_encoding_extension = CUDAExtension(
 )
 ext_modules.append(positional_encoding_extension)
 
+
+gemm_small_bs_extension = CUDAExtension(
+    name="vllm.custom_gemm",
+    sources=["csrc/gemm_small_bs.cpp", "csrc/gemm_small_bs_kernels.cu"],
+    extra_compile_args={
+        "cxx": CXX_FLAGS,
+        "nvcc": NVCC_FLAGS,
+    },
+)
+ext_modules.append(gemm_small_bs_extension)
+
+
 # Layer normalization kernels.
 layernorm_extension = CUDAExtension(
     name="vllm.layernorm_ops",
