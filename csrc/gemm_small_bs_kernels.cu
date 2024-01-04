@@ -81,23 +81,38 @@ template<int BS>
 __global__ void gemm_small_bs_kernel_tmp(
   const float4* _inputs, const float4* _weight, half* _outputs, const int IC, const int OC){
     const int oc_idx = 4 * blockIdx.y + threadIdx.y;
-    const float4* weight = _weight + oc_idx * IC / PACK_FACTOR + threadIdx.x;
+    const float4* weight = _weight + oc_idx * IC / PACK_FACTOR;
 
     half packed_weight[PACK_FACTOR];
     half packed_inputs[PACK_FACTOR * BS];
     float packed_psum[PACK_FACTOR * BS] = {0.};
 
-    for (int ic_0 = 0; ic_0 < (IC / 256); ic_0++) {
+    for (int ic_0 = 0; ic_0 < (IC / 256) * 32; ic_0 += 32) {
       #pragma unroll
       for (int b = 0; b < BS; b++) {
-        ((float4*)packed_inputs)[b] = \
-            *(_inputs + b * IC / PACK_FACTOR + threadIdx.x + ic_0 * 32);
+        ((float4*)packed_inputs)[b] = __ldg(_inputs + b * IC / PACK_FACTOR + threadIdx.x + ic_0);
       }
-      *((float4*)packed_weight) = *(weight + ic_0 * 32);
+      *((float4*)packed_weight) = *(weight + threadIdx.x + ic_0);
       #pragma unroll
       for (int ic_1 = 0; ic_1 < PACK_FACTOR * BS; ic_1++) {
         packed_psum[ic_1] += __half2float(packed_inputs[ic_1]) * \
                              __half2float(packed_weight[ic_1 % PACK_FACTOR]);
+      }
+    }
+
+    for (int ic_0 = (IC / 256) * 128; ic_0 < (IC / 2); ic_0 += 32) {
+      #pragma unroll
+      for (int b = 0; b < BS; b++) {
+        ((float*)(packed_inputs + b * PACK_FACTOR))[b] = \
+            __ldg((float*)_inputs + b * IC / 2 + threadIdx.x + ic_0);
+      }
+      *((float*)packed_weight) = *((float*)weight + threadIdx.x + ic_0);
+      #pragma unroll
+      for (int b = 0; b < BS; b++) {
+        packed_psum[b * PACK_FACTOR] += __half2float(packed_inputs[b * PACK_FACTOR]) * \
+                             __half2float(packed_weight[0]);
+        packed_psum[b * PACK_FACTOR + 1] += __half2float(packed_inputs[b * PACK_FACTOR + 1]) * \
+                             __half2float(packed_weight[1]);
       }
     }
 
@@ -111,16 +126,6 @@ __global__ void gemm_small_bs_kernel_tmp(
     #pragma unroll
     for (int b = 0; b < BS; b++) {
       psum[b] = warp_reduce_sum(psum[b]);
-    }
-
-    half* inputs_half = (half*)_inputs;
-    half* weight_half = (half*)_weight;
-    for (int ic_0 = (IC / 256) * 256 + threadIdx.x; ic_0 < IC; ic_0++) {
-      #pragma unroll
-      for (int b = 0; b < BS; b++) {
-        psum[b] += __half2float(*(inputs_half + b * IC + ic_0)) * \
-                   __half2float(*(weight_half + oc_idx * IC + ic_0));
-      }
     }
 
     if (threadIdx.x == 0) {
