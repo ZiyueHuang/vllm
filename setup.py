@@ -331,6 +331,7 @@ vllm_extension_sources = [
     "csrc/cache_kernels.cu",
     "csrc/attention/attention_kernels.cu",
     "csrc/pos_encoding_kernels.cu",
+    "csrc/custom_gemm_kernels.cu",
     "csrc/activation_kernels.cu",
     "csrc/layernorm_kernels.cu",
     "csrc/quantization/squeezellm/quant_cuda_kernel.cu",

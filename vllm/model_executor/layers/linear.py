@@ -13,6 +13,7 @@ from vllm.model_executor.parallel_utils.utils import (
     divide, split_tensor_along_last_dim)
 from vllm.model_executor.utils import set_weight_attrs
 from vllm.logger import init_logger
+from vllm._C import ops
 
 logger = init_logger(__name__)
 
@@ -47,6 +48,7 @@ class UnquantizedLinearMethod(LinearMethodBase):
 
     def __init__(self, separate_bias_add: bool = False):
         self.separate_bias_add = separate_bias_add
+        self.separate_bias_add = True
 
     def create_weights(self, input_size_per_partition: int,
                        output_size_per_partition: int, input_size: int,
@@ -64,10 +66,16 @@ class UnquantizedLinearMethod(LinearMethodBase):
                       x: torch.Tensor,
                       bias: Optional[torch.Tensor] = None) -> torch.Tensor:
         weight = weights["weight"]
+        out_shape = x.shape[:-1] + (weight.shape[0], )
+        reshaped_x = x.reshape(-1, x.shape[-1])
+        if reshaped_x.shape[0] >= 5:
+            return F.linear(x, weight, bias)
         if self.separate_bias_add:
-            if bias:
-                return F.linear(x, weight) + bias
-            return F.linear(x, weight)
+            if bias is not None:
+                out = ops.gemm_small_bs(reshaped_x, weight) + bias
+                return out.reshape(out_shape)
+            out = ops.gemm_small_bs(reshaped_x, weight)
+            return out.reshape(out_shape)
         return F.linear(x, weight, bias)
 
 

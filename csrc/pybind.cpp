@@ -48,6 +48,11 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     &rotary_embedding,
     "Apply GPT-NeoX or GPT-J style rotary embedding to query and key");
 
+  ops.def(
+    "gemm_small_bs",
+    &gemm_small_bs,
+    "Custom GEMM kernels dedicated for small batch size");
+
   // Quantization ops
 #ifndef USE_ROCM
   ops.def("awq_gemm", &awq_gemm, "Quantized GEMM for AWQ");

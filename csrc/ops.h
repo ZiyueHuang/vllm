@@ -53,6 +53,10 @@ void rotary_embedding(
   torch::Tensor& cos_sin_cache,
   bool is_neox);
 
+torch::Tensor gemm_small_bs(
+  torch::Tensor& inputs,
+  torch::Tensor& weight);
+
 void silu_and_mul(
   torch::Tensor& out,
   torch::Tensor& input);
