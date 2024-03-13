@@ -61,7 +61,9 @@ bool should_custom_ar(torch::Tensor &inp, int max_size, int world_size,
   // custom allreduce requires input byte size to be multiples of 16
   if (inp_size % 16 != 0) return false;
   if (!_is_weak_contiguous(inp)) return false;
-  if (world_size == 2 || full_nvlink) return inp_size <= max_size;
+  // TODO: auto topology detection
+  return inp_size <= max_size;
+  // if (world_size == 2 || full_nvlink) return inp_size <= max_size;
   // for 4 or more non NVLink-capable GPUs, custom allreduce provides little
   // performance improvement over NCCL.
   return false;

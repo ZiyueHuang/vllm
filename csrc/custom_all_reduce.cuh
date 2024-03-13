@@ -247,6 +247,112 @@ __global__ void __launch_bounds__(512, 1)
   }
 }
 
+
+DINLINE void release_signal(uint32_t* addr) {
+  atomicAdd_system(addr, 1);
+}
+
+DINLINE void acquire_signal(uint32_t* addr) {
+  volatile uint32_t* signal = addr;
+  uint32_t val;
+  do {
+    val = *signal;
+  } while (val == 0 || atomicCAS_system(addr, val, val - 1) != val);
+}
+
+
+DINLINE void start_sync_hcm(const RankSignals &sg, volatile Signal *self_sg,
+                            int rank) {
+  int hcm_info[40] = {0, 1, 2, 3, 7, \
+                      1, 0, 3, 2, 6, \
+                      2, 3, 0, 1, 5, \
+                      3, 2, 1, 0, 4, \
+                      4, 5, 6, 7, 3, \
+                      5, 4, 7, 6, 2, \
+                      6, 7, 4, 5, 1, \
+                      7, 6, 5, 4, 0};
+
+  if (threadIdx.x < 3) {
+    int target_rank = hcm_info[rank * 5 + threadIdx.x + 1];
+    release_signal((uint32_t *)(&sg.signals[target_rank]->start[blockIdx.x][rank]));
+    acquire_signal((uint32_t *)(&self_sg->start[blockIdx.x][target_rank]));
+  }
+  __syncthreads();
+}
+
+// This function is meant to be used as the second or the final synchronization
+// barrier in the all reduce kernel. If it's the final synchronization barrier,
+// we don't need to make any visibility guarantees for prior memory accesses.
+DINLINE void end_sync_hcm(const RankSignals &sg, volatile Signal *self_sg,
+                          int rank) {
+  __syncthreads();
+
+  int hcm_info[40] = {0, 1, 2, 3, 7, \
+                      1, 0, 3, 2, 6, \
+                      2, 3, 0, 1, 5, \
+                      3, 2, 1, 0, 4, \
+                      4, 5, 6, 7, 3, \
+                      5, 4, 7, 6, 2, \
+                      6, 7, 4, 5, 1, \
+                      7, 6, 5, 4, 0};
+
+  // eliminate the case that prior writes are not visible after signals become
+  // visible
+  __threadfence_system();
+  if (threadIdx.x == 0) {
+    int relay_rank = hcm_info[rank * 5 + 4];
+    release_signal((uint32_t *)(&sg.signals[relay_rank]->end[blockIdx.x][rank]));
+    acquire_signal((uint32_t *)(&self_sg->end[blockIdx.x][relay_rank]));
+  }
+  __syncthreads();
+}
+
+
+template <typename T, int ngpus>
+__global__ void __launch_bounds__(512, 1)
+    cross_device_reduce_hcm(RankData *_dp, RankSignals sg,
+                            volatile Signal *self_sg, T *__restrict__ result,
+                            int rank, int size) {
+  using P = typename packed_t<T>::P;
+  using A = typename packed_t<T>::A;
+  int hcm_info[40] = {0, 1, 2, 3, 7, \
+                      1, 0, 3, 2, 6, \
+                      2, 3, 0, 1, 5, \
+                      3, 2, 1, 0, 4, \
+                      4, 5, 6, 7, 3, \
+                      5, 4, 7, 6, 2, \
+                      6, 7, 4, 5, 1, \
+                      7, 6, 5, 4, 0};
+
+  const P *ptrs[4];
+  P *tmps[ngpus];
+  #pragma unroll
+  for (int i = 0; i < 4; i++) {
+    ptrs[i] = (const P *)_dp->ptrs[hcm_info[rank * 5 + i]];
+  }
+  #pragma unroll
+  for (int i = 0; i < ngpus; i++) {
+    tmps[i] = get_tmp_buf<P>(sg.signals[i]);
+  }
+  // note: we don't reorder the address so the accumulation order is the same
+  // for all ranks, ensuring bitwise identical results
+  auto dp = *_dp;
+  start_sync_hcm(sg, self_sg, rank);
+  // do the actual reduction
+  auto tmp_out = tmps[rank];
+  for (int idx = blockIdx.x * blockDim.x + threadIdx.x; idx < size;
+       idx += gridDim.x * blockDim.x) {
+    ((P *)tmp_out)[idx] = packed_reduce<P, 4, A>(ptrs, idx);
+  }
+  end_sync_hcm(sg, self_sg, rank);
+
+  const P *final_tmps[2] = {tmps[rank], tmps[hcm_info[rank * 5 + 4]]};
+  for (int idx = blockIdx.x * blockDim.x + threadIdx.x; idx < size;
+       idx += gridDim.x * blockDim.x) {
+    ((P *)result)[idx] = packed_reduce<P, 2, A>(final_tmps, idx);
+  }
+}
+
 using IPC_KEY = std::array<uint8_t, sizeof(cudaIpcMemHandle_t)>;
 static_assert(sizeof(IPC_KEY) == sizeof(cudaIpcMemHandle_t));
 static_assert(alignof(IPC_KEY) == alignof(cudaIpcMemHandle_t));
@@ -449,6 +555,8 @@ class CustomAllreduce {
       } else {                                        \
         KL(ngpus, cross_device_reduce_2stage);        \
       }                                               \
+    } else {                                          \
+      KL(ngpus, cross_device_reduce_hcm);             \
     }                                                 \
     break;                                            \
   }

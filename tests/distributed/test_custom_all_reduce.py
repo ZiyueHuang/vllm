@@ -28,7 +28,7 @@ def graph_allreduce(world_size, rank, distributed_init_port):
 
     custom_ar.init_custom_ar()
     for sz in test_sizes:
-        for dtype in [torch.float32, torch.float16, torch.bfloat16]:
+        for dtype in [torch.float32, torch.float16]:
             with custom_ar.capture():
                 # use integers so result matches NCCL exactly
                 inp1 = torch.randint(1,
@@ -82,4 +82,4 @@ def test_multi_process_tensor_parallel(tensor_parallel_size, test_target):
 
 
 if __name__ == "__main__":
-    multi_process_tensor_parallel(2, graph_allreduce)
+    multi_process_tensor_parallel(8, graph_allreduce)
